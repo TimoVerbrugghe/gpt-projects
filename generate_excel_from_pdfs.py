@@ -4,7 +4,7 @@ from openai import AzureOpenAI
 from pdfminer.high_level import extract_text  
 import openpyxl  
 from openpyxl.worksheet.datavalidation import DataValidation  
-  
+
 # Function to call Azure OpenAI GPT-4 for extracting questions and answers  
 def extract_questions_and_answers_gpt(text):  
     deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")  
@@ -69,18 +69,13 @@ def extract_questions_and_answers(pdf_path):
         else:  
             print(f"Skipping line due to incorrect format: {line}")  
     return qa_list  
-  
-def create_excel(qa_data, output_file):
-    print(f"Creating Excel: {output_file}")   
-    wb = openpyxl.Workbook()  
-    ws = wb.active  
-    ws.title = "Questions and Answers"  
+
+def create_excel(qa_data, sheet_name, wb):  
+    ws = wb.create_sheet(title=sheet_name)  
     ws.append(["Question Number", "The question", "Picklist", "Scoring", "Assigned To"])  
-
-    # Set column headers to bold
-    for cell in ws[1]:
-        cell.font = openpyxl.styles.Font(bold=True)
-
+    # Set column headers to bold  
+    for cell in ws[1]:  
+        cell.font = openpyxl.styles.Font(bold=True)  
     for qa in qa_data:  
         section_title, question_number, question, possible_answers, scoring = qa  
         if question_number == 'Section Title':  
@@ -90,25 +85,28 @@ def create_excel(qa_data, output_file):
             picklist = possible_answers  
             ws.append([question_number, question, picklist, scoring, ""])  
 
-    wb.save(output_file)  
-  
-def process_pdfs_in_directory(pdf_dir):  
+def process_pdfs_in_directory(pdf_dir, output_file):  
+    wb = openpyxl.Workbook()
     for root, _, files in os.walk(pdf_dir):  
         for pdf_file in files:  
             if pdf_file.endswith(".pdf"):  
                 pdf_path = os.path.join(root, pdf_file)  
                 qa_data = extract_questions_and_answers(pdf_path)  
-                output_file = os.path.join(root, os.path.splitext(pdf_file)[0] + ".xlsx")  
-                create_excel(qa_data, output_file)
+                sheet_name = os.path.splitext(pdf_file)[0][:31]  # Sheet names must be <= 31 chars  
+                create_excel(qa_data, sheet_name, wb)
+    # Remove the default sheet created by openpyxl  
+    if 'Sheet' in wb.sheetnames:  
+        wb.remove(wb['Sheet'])
+    wb.save(output_file)  
   
 def main(pdf_dir):  
-    process_pdfs_in_directory(pdf_dir)  
+    output_file = os.path.join(pdf_dir, "combined_questions_answers.xlsx")  
+    process_pdfs_in_directory(pdf_dir, output_file)  
   
-if __name__ == "__main__":
-    try:
-        pdf_dir = sys.argv[1]
-        main(pdf_dir)
-        print("PDFs have been extracted to excel")
-    except Exception as e:
+if __name__ == "__main__":  
+    try:  
+        pdf_dir = sys.argv[1]  
+        main(pdf_dir)  
+        print("PDFs have been extracted to a combined Excel file")  
+    except Exception as e:  
         print("Error:", str(e))
-
