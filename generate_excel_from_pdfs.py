@@ -1,9 +1,9 @@
 import os  
 import sys  
 from openai import AzureOpenAI  
-from pdfminer.high_level import extract_text  
-import openpyxl  
-from openpyxl.worksheet.datavalidation import DataValidation  
+from pdfminer.high_level import extract_text 
+from PyPDF2 import PdfReader, PdfWriter  
+import openpyxl
 
 # Function to call Azure OpenAI GPT-4 for extracting questions and answers  
 def extract_questions_and_answers_gpt(text):  
@@ -48,27 +48,55 @@ Extract from the following text:
     # Extract content from response  
     gpt_response = response.choices[0].message.content.strip()  
     return gpt_response  
+
+def split_pdf_into_chunks(pdf_path, chunk_size=5):  
+    pdf_reader = PdfReader(pdf_path)  
+    num_pages = len(pdf_reader.pages)  
+    chunks = []  
   
+    for start in range(0, num_pages, chunk_size):  
+        pdf_writer = PdfWriter()  
+        end = min(start + chunk_size, num_pages)  
+          
+        for page_num in range(start, end):  
+            pdf_writer.add_page(pdf_reader.pages[page_num])  
+          
+        temp_pdf_path = f"temp_chunk_{start // chunk_size}.pdf"  
+        with open(temp_pdf_path, "wb") as temp_pdf:  
+            pdf_writer.write(temp_pdf)  
+          
+        chunks.append(temp_pdf_path)  
+      
+    return chunks  
+
 def extract_questions_and_answers(pdf_path):  
-    print(f"Extracting text from PDF: {pdf_path}")  
-    text = extract_text(pdf_path)  
-    print("Text extracted, calling GPT-4...")  
-    gpt_response = extract_questions_and_answers_gpt(text)  
-    qa_list = []  
-    lines = gpt_response.split('\n')  
-    current_section = None  
-  
-    for line in lines:  
-        parts = [part.strip() for part in line.split('|')]  
-        if len(parts) == 1:  # Section Title  
-            current_section = parts[0]  
-            qa_list.append((current_section, 'Section Title', '', '', ''))  
-        elif len(parts) == 5:  
-            section_title, question_number, question, possible_answers, scoring = parts  
-            qa_list.append((section_title, question_number, question, possible_answers, scoring))  
-        else:  
-            print(f"Skipping line due to incorrect format: {line}")  
-    return qa_list  
+    print(f"Extracting text from PDF: {pdf_path}")
+    chunks = split_pdf_into_chunks(pdf_path)  
+    qa_list = [] 
+
+    for chunk in chunks:
+        print(f"Extracting text from PDF chunk: {chunks.index(chunk) + 1}")
+        text = extract_text(chunk) 
+        print("Text extracted, calling GPT-4o...")  
+        gpt_response = extract_questions_and_answers_gpt(text)   
+        lines = gpt_response.split('\n')  
+        current_section = None  
+    
+        for line in lines:  
+            parts = [part.strip() for part in line.split('|')]  
+            if len(parts) == 1:  # Section Title  
+                current_section = parts[0]  
+                qa_list.append((current_section, 'Section Title', '', '', ''))  
+            elif len(parts) == 5:  
+                section_title, question_number, question, possible_answers, scoring = parts  
+                qa_list.append((section_title, question_number, question, possible_answers, scoring))  
+            else:  
+                print(f"Skipping line due to incorrect format: {line}")  
+
+        # Clean up temporary chunk  
+        os.remove(chunk)
+
+    return qa_list   
 
 def create_excel(qa_data, sheet_name, wb):  
     ws = wb.create_sheet(title=sheet_name)  
